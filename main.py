@@ -4,9 +4,8 @@ from typing import List
 from pathlib import Path
 import multiprocessing as mp
 import pandas as pd
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import ArrayLike
 import numpy as np
-from numpy.linalg import norm
 import matplotlib.pyplot as plt
 from mpl_config import latex_preamble, xtick_label_formatter
 from num_opt_ga import NumericalOptimizationGA
@@ -35,6 +34,7 @@ CRSE2_LATTICE = 3.167287237
 
 csv_dir = Path("data/csv")
 plot_dir = Path("plots")
+results_dir = Path("results")
 
 suggested_search_region = (
     (-1.0, 1.0),  # energy
@@ -222,6 +222,6 @@ if __name__ == "__main__":
             ),
         )
 
-        filename = csv_dir.joinpath(f"{crystal}_result.csv")
+        filename = results_dir.joinpath(f"{crystal}.csv")
         print(f"Saving output as {filename}")
         output_df.to_csv(filename, header=None)
