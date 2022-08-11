@@ -25,12 +25,21 @@ plt.rcParams.update(
 )
 
 PROCESSES = mp.cpu_count() - 2
-GENS = 50
-POP_SIZE = 500
+GENS = 100
+POP_SIZE = 1000
+
+# First two integers in ELITE must be even
+ELITE = (
+    int(0.025 * POP_SIZE) * 2,
+    int(0.05 * POP_SIZE) * 2,
+    int(0.1 * POP_SIZE),
+)
+
 # THRESHOLD = 2e-4
 REFINEMENT_RATIO = 0.1
 CRS2_LATTICE = 3.022302679
 CRSE2_LATTICE = 3.167287237
+Y_MARGIN = 0.1
 
 csv_dir = Path("data/csv")
 plot_dir = Path("plots")
@@ -122,7 +131,8 @@ if __name__ == "__main__":
         fitting_ks = ks[lower_fit_bound:upper_fit_bound, :]
         fitting_energies = sorted_energies[lower_fit_bound:upper_fit_bound, :]
         print(
-            f"Fitting region: {fitting_ks[0, 0]: .3f} < kx < {fitting_ks[-1, 0]: .3f}"
+            "Fitting region: ",
+            f"{fitting_ks[0, 0]: .3f} < kx < {fitting_ks[-1, 0]: .3f}\n",
         )
 
         # Objective function to optimize
@@ -140,13 +150,13 @@ if __name__ == "__main__":
                 search_region=suggested_search_region,
                 function=obj_function,
                 pop_size=POP_SIZE,
-                elite=(10, 120, 120),
+                elite=ELITE,
                 fit_func_param=10.0,
             )
             for _ in range(PROCESSES)
         ]
 
-        print(f"Evolving initial {PROCESSES} populations")
+        print(f"Evolving {PROCESSES} populations")
         gas = evolve_gas(gas)
 
         # Evolving gas with refined search regions
@@ -155,7 +165,7 @@ if __name__ == "__main__":
                 search_region=search_region,
                 function=obj_function,
                 pop_size=POP_SIZE,
-                elite=(10, 120, 120),
+                elite=ELITE,
                 fit_func_param=10.0,
             )
             for search_region in get_refined_search_regions(gas)
@@ -173,13 +183,22 @@ if __name__ == "__main__":
         best_gen = ga.gen
         params = ga.best()[0].pos
         sorted_eigenvalues = get_energies(
-            ks, ham_factory=third_order_ham_factory, params=[lattice, *params]
+            ks, ham_factory=third_order_ham_factory, params=(lattice, *params)
         )
 
         # Creating plots
         print("\nCreating energy plot")
         fig, ax = plt.subplots()
-        ax.set(ylabel=r"Energy (\si{\eV})", title=title)
+
+        ax.set(
+            title=title,
+            ylabel=r"Energy (\si{\eV})",
+            ylim=(
+                np.min(sorted_energies[:, 0]) - Y_MARGIN,
+                np.max(sorted_energies[:, -1]) + Y_MARGIN,
+            ),
+        )
+
         ax.xaxis.set_major_formatter(plt.FuncFormatter(xtick_label_formatter))
 
         plot_domain = get_plot_domain(ks)

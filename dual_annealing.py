@@ -23,6 +23,7 @@ plt.rcParams.update(
 
 CRS2_LATTICE = 3.022302679
 CRSE2_LATTICE = 3.167287237
+Y_MARGIN = 0.1
 
 csv_dir = Path("data/csv")
 plot_dir = Path("plots")
@@ -118,7 +119,16 @@ if __name__ == "__main__":
         # Creating plots
         print("\nCreating energy plot")
         fig, ax = plt.subplots()
-        ax.set(ylabel=r"Energy (\si{\eV})", title=title)
+
+        ax.set(
+            title=title,
+            ylabel=r"Energy (\si{\eV})",
+            ylim=(
+                np.min(sorted_energies[:, 0]) - Y_MARGIN,
+                np.max(sorted_energies[:, -1]) + Y_MARGIN,
+            ),
+        )
+
         ax.xaxis.set_major_formatter(plt.FuncFormatter(xtick_label_formatter))
 
         plot_domain = get_plot_domain(ks)

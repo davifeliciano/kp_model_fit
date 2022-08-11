@@ -235,9 +235,13 @@ def get_fitting_region(
     return indices[0], indices[-1]
 
 
-def get_plot_domain(ks: NDArray) -> NDArray:
+def get_k_k_index(ks: NDArray) -> int:
     (k_k_index,) = np.where(ks[:, 0] == 0.0)
-    k_k_index = k_k_index[0]
+    return k_k_index[0]
+
+
+def get_plot_domain(ks: NDArray) -> NDArray:
+    k_k_index = get_k_k_index(ks)
     k_gamma = ks[0]
     k_k = ks[k_k_index]
     k_m = ks[-1]
