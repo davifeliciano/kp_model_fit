@@ -127,7 +127,7 @@ if __name__ == "__main__":
         sorted_energies = np.sort(energies)
 
         # Data subset that will be used in the fitting process
-        lower_fit_bound, upper_fit_bound = get_fitting_region(ks)
+        lower_fit_bound, upper_fit_bound = get_fitting_region(ks, lower=-0.1, upper=0.1)
         fitting_ks = ks[lower_fit_bound:upper_fit_bound, :]
         fitting_energies = sorted_energies[lower_fit_bound:upper_fit_bound, :]
         print(

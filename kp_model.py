@@ -21,7 +21,7 @@ def f_2(k: NDArray, lattice: float) -> float:
 
 
 def f_3(k: NDArray, lattice: float) -> complex:
-    return lattice**2 * (TAU * k[0] + k[1] * 1j)
+    return lattice**2 * (TAU * k[0] + k[1] * 1j) ** 2
 
 
 def f_4(k: NDArray, lattice: float) -> float:
