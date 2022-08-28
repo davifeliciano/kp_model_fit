@@ -24,11 +24,19 @@ from kp_model import (
 )
 
 PROCESSES = mp.cpu_count()
-GENS = 100
-POP_SIZE = 500
 REFINEMENT_RATIO = 0.1
 THRESHOLD = 1e-5
 
+# Genetic algorithm default properties
+GENS = 100
+POP_SIZE = 500
+MUT_PROB = 0.05
+
+# Dual annealing default properties
+ITERS = 1000
+INIT_TEMP = 5230
+
+# Physical properties of each lattice
 CRS2_LATTICE = 3.022302679
 CRSE2_LATTICE = 3.167287237
 CRS2_ENERGY = 0.3536
@@ -89,7 +97,7 @@ def parse_args():
         const=POP_SIZE,
         help=(
             "the number of individuals to compose the populations "
-            f"of the genetic algorithms. Default is {POP_SIZE}."
+            f"when using genetic algorithms. Default is {POP_SIZE}."
         ),
     )
 
@@ -100,8 +108,55 @@ def parse_args():
         default=GENS,
         const=GENS,
         help=(
-            "the number of generations to evaluate in the evolution "
-            f"process of each population. Default is {GENS}."
+            "when using generetic algorithms, the number of generations "
+            "to evaluate in the evolution process of each population. "
+            f"Default is {GENS}."
+        ),
+    )
+
+    parser.add_argument(
+        "--mut-prob",
+        type=float,
+        nargs="?",
+        default=MUT_PROB,
+        const=MUT_PROB,
+        help=(
+            "when using genetic algorithms, the probability of mutation "
+            f"per gene in the recombination process. Default is {MUT_PROB}."
+        ),
+    )
+
+    parser.add_argument(
+        "--iters",
+        type=int,
+        nargs="?",
+        default=ITERS,
+        const=ITERS,
+        help=(
+            "when using dual annealing method, the max number of iterations "
+            f"to perform. Default is {ITERS}."
+        ),
+    )
+
+    parser.add_argument(
+        "--temp",
+        type=float,
+        nargs="?",
+        default=INIT_TEMP,
+        const=INIT_TEMP,
+        help=(
+            "when using dual annealing method, the initial temperature. "
+            "use higher values to facilitates a wider search. "
+            f"Default is {INIT_TEMP}. Range is (0.01, 5.e4]."
+        ),
+    )
+
+    parser.add_argument(
+        "--no-local-search",
+        action="store_true",
+        help=(
+            "when using dual annealing, perform a traditional generalized "
+            "simulated annealing with no local search strategy applied"
         ),
     )
 
@@ -112,21 +167,22 @@ def parse_args():
         default=PROCESSES,
         const=PROCESSES,
         help=(
-            "the number of generations to evaluate in the evolution "
-            f"process of each population. Default is {PROCESSES}."
+            "the number of processes to spawn working on the optimizing "
+            f"process. Default is {PROCESSES}, the number of logical "
+            "processors in the machine"
         ),
     )
 
     parser.add_argument(
-        "--order",
+        "--orders",
         type=int,
         choices=(1, 2, 3),
-        nargs="?",
-        default=3,
-        const=3,
+        nargs="*",
+        default=(1, 2, 3),
         help=(
             "the order of the k vector in the k.p model expansion "
-            "for the hamiltonian of the system. Default is 3."
+            "for the hamiltonian of the system to include in the "
+            "energy bands plot. Default is (1, 2, 3)."
         ),
     )
 
@@ -160,7 +216,7 @@ def get_best_func_value(ga_instance: NumericalOptimizationGA) -> float:
 
 def evolve_ga(ga_instance: NumericalOptimizationGA) -> NumericalOptimizationGA | None:
     try:
-        while ga_instance.gen < GENS:
+        while ga_instance.gen < gens:
             ga_instance.evolve()
         return ga_instance
     # Ignore KeyboardInterrupt on a child process
@@ -189,8 +245,12 @@ if __name__ == "__main__":
     method = args.method
     pop_size = args.pop_size
     gens = args.gens
+    mut_prob = args.mut_prob
+    iters = args.iters
+    temp = args.temp
+    no_local_search = args.no_local_search
     processes = args.processes
-    order = args.order
+    orders = args.orders
     fix = args.fix
 
     # Checking if number of processes is not greater than available cores
@@ -220,7 +280,6 @@ if __name__ == "__main__":
         lattice = lattices[lattice_name]
         title = titles[lattice_name]
         file = files[lattice_name]
-        ham_factory = ham_factories[order - 1]
 
         # Reading data from files
         logger.info(f"Reading data from file {file}")
@@ -236,6 +295,12 @@ if __name__ == "__main__":
         expected_delta = k_k_energies[2] - k_k_energies[1]
         expected_lambda_c = k_k_energies[3] - k_k_energies[2]
         expected_lambda_v = k_k_energies[1] - k_k_energies[0]
+        expected_params = (
+            expected_energy,
+            expected_delta,
+            expected_lambda_c,
+            expected_lambda_v,
+        )
 
         # Data subset that will be used in the fitting process
         lower_fit_bound, upper_fit_bound = get_fitting_region(ks)
@@ -247,132 +312,136 @@ if __name__ == "__main__":
             "as fitting region"
         )
 
-        # The genetic_algorithm method search for points of
-        # maximum, while the dual annealing method seach for
-        # points of minimum. This factor flips the objective
-        # function according with the method used
-        obj_function_factor = -1 if method == "genetic_algorithm" else 1
+        sorted_eigen_list = []
+        params_list = []
+        best_func_value_list = []
 
-        # Objective function to optimize
-        def obj_function(params: ArrayLike) -> float:
-            return obj_function_factor * avg_squared_diff(
-                ks=fitting_ks,
-                sorted_energies=fitting_energies,
-                ham_factory=ham_factory,
-                params=(lattice, *params),
-            )
+        for order in orders:
 
-        # Region where to find a minimum
-        if fix is True:
-            first_order_search_region = [
-                (expected_energy - THRESHOLD, expected_energy + THRESHOLD),  # energy
-                (expected_delta - THRESHOLD, expected_delta + THRESHOLD),  # delta
-                (
-                    expected_lambda_c - THRESHOLD,
-                    expected_lambda_c + THRESHOLD,
-                ),  # lambda_c
-                (
-                    expected_lambda_v - THRESHOLD,
-                    expected_lambda_v + THRESHOLD,
-                ),  # lambda_v
-                (-0.5, 0.5),  # gamma_0
-            ]
-        else:
-            first_order_search_region = [
-                (0.0, 1.0),  # energy
-                (0.0, 1.2),  # delta
-                (0.0, 0.2),  # lambda_c
-                (0.0, 0.2),  # lambda_v
-                (-0.5, 0.5),  # gamma_0
-            ]
+            # The genetic_algorithm method search for points of
+            # maximum, while the dual annealing method seach for
+            # points of minimum. This factor flips the objective
+            # function according with the method used
+            obj_function_factor = -1 if method == "genetic_algorithm" else 1
+            ham_factory = ham_factories[order - 1]
 
-        higher_order_search_region = [(-0.5, 0.5) for _ in range(3 * order - 3)]
-        suggested_search_region = first_order_search_region + higher_order_search_region
-
-        logger.info("Starting optimization process")
-        if method == "genetic_algorithm":
-
-            # First two integers in ELITE must be even
-            elite = (
-                int(0.025 * pop_size) * 2,
-                int(0.05 * pop_size) * 2,
-                int(0.1 * pop_size),
-            )
-
-            # Evolving gas
-            gas = [
-                NumericalOptimizationGA(
-                    search_region=suggested_search_region,
-                    function=obj_function,
-                    pop_size=pop_size,
-                    elite=elite,
-                    fit_func_param=10.0,
+            # Objective function to optimize
+            def obj_function(params: ArrayLike) -> float:
+                return obj_function_factor * avg_squared_diff(
+                    ks=fitting_ks,
+                    sorted_energies=fitting_energies,
+                    ham_factory=ham_factory,
+                    params=(lattice, *params),
                 )
-                for _ in range(processes)
-            ]
 
-            logger.info(
-                f"Evolving {processes} populations with {pop_size} "
-                f"individuals for {gens} generations"
-            )
-
-            gas = evolve_gas(gas)
-
-            refined_interval_sizes = tuple(
-                [
-                    REFINEMENT_RATIO * (upper - lower) / 2
-                    for (lower, upper) in suggested_search_region
+            # Region where to find a minimum
+            if fix is True:
+                first_order_search_region = [
+                    (expected_param - THRESHOLD, expected_param + THRESHOLD)
+                    for expected_param in expected_params
+                ] + [(-1.0, 1.0)]
+            else:
+                first_order_search_region = [
+                    (-1.0, 1.0),  # energy
+                    (0.5, 1.2),  # delta
+                    (0.0, 1.0),  # lambda_c
+                    (0.0, 1.0),  # lambda_v
+                    (-1.0, 1.0),  # gamma_0
                 ]
+
+            higher_order_search_region = [(-1.0, 1.0) for _ in range(3 * order - 3)]
+            suggested_search_region = (
+                first_order_search_region + higher_order_search_region
             )
 
-            # Evolving gas with refined search regions
-            gas = [
-                NumericalOptimizationGA(
-                    search_region=search_region,
-                    function=obj_function,
-                    pop_size=pop_size,
-                    elite=elite,
-                    fit_func_param=10.0,
+            logger.info(f"Starting optimization process for order {order}")
+            if method == "genetic_algorithm":
+
+                # First two integers in ELITE must be even
+                elite = (
+                    int(0.025 * pop_size) * 2,
+                    int(0.05 * pop_size) * 2,
+                    int(0.1 * pop_size),
                 )
-                for search_region in get_refined_search_regions(gas)
-            ]
 
-            logger.info(
-                "Restarting process with refined search "
-                "regions arround the best individuals"
-            )
+                # Evolving gas
+                gas = [
+                    NumericalOptimizationGA(
+                        search_region=suggested_search_region,
+                        function=obj_function,
+                        pop_size=pop_size,
+                        elite=elite,
+                        mut_probs=(mut_prob, mut_prob),
+                    )
+                    for _ in range(processes)
+                ]
 
-            gas = evolve_gas(gas)
-            func_values = list(map(get_best_func_value, gas))
-            best_func_value = min(func_values)
-            best_index = func_values.index(best_func_value)
-            ga = gas[best_index]
+                logger.info(
+                    f"Evolving {processes} populations with {pop_size} "
+                    f"individuals for {gens} generations"
+                )
 
-            # Data used in the plot
-            label = "GA Fit"
-            params = ga.best()[0].pos
-            sorted_eigenvalues = get_energies(
-                ks, ham_factory=ham_factory, params=(lattice, *params)
-            )
+                gas = evolve_gas(gas, processes=processes)
 
-        if method == "dual_annealing":
-            result = dual_annealing(
-                obj_function,
-                bounds=np.array(suggested_search_region),
-                maxiter=2000,
-                no_local_search=True,
-            )
+                refined_interval_sizes = tuple(
+                    [
+                        REFINEMENT_RATIO * (upper - lower) / 2
+                        for (lower, upper) in suggested_search_region
+                    ]
+                )
 
-            best_func_value = result.fun
+                # Evolving gas with refined search regions
+                gas = [
+                    NumericalOptimizationGA(
+                        search_region=search_region,
+                        function=obj_function,
+                        pop_size=pop_size,
+                        elite=elite,
+                        mut_probs=(mut_prob, mut_prob),
+                    )
+                    for search_region in get_refined_search_regions(gas)
+                ]
 
-            # Data used in the plot
-            label = "Dual Annelaing Fit"
-            params = result.x
-            sorted_eigenvalues = get_energies(
-                ks, ham_factory=ham_factory, params=[lattice, *params]
-            )
+                logger.info(
+                    "Restarting process with refined search "
+                    "regions arround the best individuals"
+                )
 
-        logger.info(f"Best function value reached: {best_func_value: .3e}")
+                gas = evolve_gas(gas, processes=processes)
+                func_values = list(map(get_best_func_value, gas))
+                best_func_value = min(func_values)
+                best_index = func_values.index(best_func_value)
+                ga = gas[best_index]
+
+                # Data used in the plot
+                label = "GA Fit"
+                params = ga.best()[0].pos
+                sorted_eigenvalues = get_energies(
+                    ks, ham_factory=ham_factory, params=(lattice, *params)
+                )
+
+            if method == "dual_annealing":
+                result = dual_annealing(
+                    obj_function,
+                    bounds=np.array(suggested_search_region),
+                    maxiter=iters,
+                    initial_temp=temp,
+                    no_local_search=no_local_search,
+                )
+
+                best_func_value = result.fun
+
+                # Data used in the plot
+                label = "Dual Annelaing Fit"
+                params = result.x
+                sorted_eigenvalues = get_energies(
+                    ks, ham_factory=ham_factory, params=[lattice, *params]
+                )
+
+            logger.info(f"Best function value reached: {best_func_value: .3e}")
+            sorted_eigen_list.append(sorted_eigenvalues)
+            params_list.append(params)
+            best_func_value_list.append(best_func_value)
 
         # Creating plots
         logger.info("Creating energy plot")
@@ -391,20 +460,36 @@ if __name__ == "__main__":
         ax.xaxis.set_major_formatter(plt.FuncFormatter(xtick_label_formatter))
 
         plot_domain = get_plot_domain(ks)
-        ax.plot(plot_domain, sorted_energies, color="blue", label="DFT")
         ax.plot(
             plot_domain,
-            sorted_eigenvalues,
-            color="red",
-            label=label,
+            sorted_energies,
+            color="black",
+            marker="o",
+            linestyle="none",
+            markersize=1.0,
+            label="DFT",
         )
+
+        colors = ("blue", "red", "green")
+
+        for sorted_eigenvalues, color, order in zip(sorted_eigen_list, colors, orders):
+            ax.plot(
+                plot_domain,
+                sorted_eigenvalues,
+                color=color,
+                alpha=0.8,
+                label=label + f" (Order {order})",
+                zorder=-1,
+            )
 
         # Removing repeated entries from legend
         handles, labels = ax.get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
-        plt.legend(by_label.values(), by_label.keys())
+        plt.legend(by_label.values(), by_label.keys(), loc="upper center")
 
-        basename = f"{lattice_name}_{method}_order_{order}"
+        # Basename to save the image and the csv file
+        joined_orders = "".join([str(order) for order in orders])
+        basename = f"{lattice_name}_{method}_order_{joined_orders}"
         if fix is True:
             basename += "_fix"
 
@@ -414,34 +499,40 @@ if __name__ == "__main__":
 
         # Creating dataframe with the results
         logger.info("Creating a dataframe with the results")
+
+        # The dataframe will have 7 + 3 * max(orders) - 3 = 4 + 3 * max(orders) rows
+        rows = 4 + 3 * max(orders)
+
+        fitted_params_columns = [
+            [best_func_value, lattice]
+            + list(params)
+            + [None for _ in range(rows - len(params) - 2)]
+            for params, best_func_value in zip(params_list, best_func_value_list)
+        ]
+
+        expected_params_column = [None for _ in range(rows)]
+        expected_params_column[2:6] = expected_params
+        data_list = [
+            *fitted_params_columns,
+            expected_params_column,
+        ]  # Needs to be transposed
+
+        first_order_index_labels = [
+            "obj_func_value",
+            "lattice",
+            "fermi_energy",
+            "delta",
+            "lamdba_c",
+            "lambda_v",
+            "gamma_0",
+        ]
+
+        higher_order_index_labels = [f"gamma_{n}" for n in range(3 * max(orders) - 3)]
+
         output_df = pd.DataFrame(
-            data=np.array(
-                [
-                    # Fitted values for the params
-                    [best_func_value, lattice] + list(params),
-                    # Expected values for the params
-                    [
-                        None,
-                        None,
-                        expected_energy,
-                        expected_delta,
-                        expected_lambda_c,
-                        expected_lambda_v,
-                    ]
-                    + [None for _ in range(len(params) - 4)],
-                ]
-            ).transpose(),
-            index=[
-                "obj_func_value",
-                "lattice",
-                "fermi_energy",
-                "delta",
-                "lamdba_c",
-                "lambda_v",
-                "gamma_0",
-            ]
-            + [f"gamma_{n}" for n in range(3 * (order - 1))],
-            columns=("fitted_values", "expected_values"),
+            data=np.array(data_list).transpose(),
+            index=first_order_index_labels + higher_order_index_labels,
+            columns=[f"order_{order}" for order in orders] + ["expected_values"],
         )
 
         filename = results_dir.joinpath(f"{basename}.csv")
