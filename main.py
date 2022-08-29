@@ -2,14 +2,15 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from typing import List
+from typing import List, Callable
 from pathlib import Path
 import multiprocessing as mp
 import pandas as pd
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, NDArray
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import dual_annealing
+from scipy.optimize import OptimizeResult
 from mpl_config import latex_preamble, xtick_label_formatter
 from num_opt_ga import NumericalOptimizationGA
 from kp_model import (
@@ -238,6 +239,22 @@ def evolve_gas(
             sys.exit(1)
 
 
+def custom_dual_annealing(
+    obj_function: Callable[[NDArray], float],
+    bounds: ArrayLike,
+    maxiter: int,
+    initial_temp: float,
+    no_local_search: bool,
+) -> OptimizeResult:
+    return dual_annealing(
+        obj_function,
+        bounds=bounds,
+        maxiter=maxiter,
+        initial_temp=initial_temp,
+        no_local_search=no_local_search,
+    )
+
+
 if __name__ == "__main__":
 
     args = parse_args()
@@ -421,19 +438,34 @@ if __name__ == "__main__":
                 )
 
             if method == "dual_annealing":
-                result = dual_annealing(
-                    obj_function,
-                    bounds=np.array(suggested_search_region),
-                    maxiter=iters,
-                    initial_temp=temp,
-                    no_local_search=no_local_search,
+
+                logger.info(
+                    f"Spawning {processes} Dual Annealing with "
+                    f"temp={temp}, maxiter={iters} and "
+                    f"no_local_search={no_local_search}"
                 )
 
-                best_func_value = result.fun
+                dual_annealing_args = (
+                    obj_function,
+                    np.array(suggested_search_region),
+                    iters,
+                    temp,
+                    no_local_search,
+                )
+
+                with mp.Pool(processes) as pool:
+                    promises = [
+                        pool.apply_async(custom_dual_annealing, dual_annealing_args)
+                        for _ in range(processes)
+                    ]
+                    results = [promise.get() for promise in promises]
 
                 # Data used in the plot
                 label = "Dual Annelaing Fit"
-                params = result.x
+                func_values = [result.fun for result in results]
+                best_func_value = min(func_values)
+                best_index = func_values.index(best_func_value)
+                params = results[best_index].x
                 sorted_eigenvalues = get_energies(
                     ks, ham_factory=ham_factory, params=[lattice, *params]
                 )
