@@ -25,13 +25,13 @@ from kp_model import (
 )
 
 PROCESSES = mp.cpu_count()
-REFINEMENT_RATIO = 0.1
 THRESHOLD = 1e-5
 
 # Genetic algorithm default properties
 GENS = 100
 POP_SIZE = 500
 MUT_PROB = 0.05
+REFINEMENT_RATIO = 0.1
 
 # Dual annealing default properties
 ITERS = 1000
@@ -124,6 +124,19 @@ def parse_args():
         help=(
             "when using genetic algorithms, the probability of mutation "
             f"per gene in the recombination process. Default is {MUT_PROB}."
+        ),
+    )
+
+    parser.add_argument(
+        "--refine-ratio",
+        type=float,
+        nargs="?",
+        default=REFINEMENT_RATIO,
+        const=REFINEMENT_RATIO,
+        help=(
+            "when using genetic algorithms, the ratio by which the search region "
+            "is shrinked in the second run around the best candidates of minimum. "
+            f"If 0.0, no refinement strategy is used. Default is {REFINEMENT_RATIO}."
         ),
     )
 
@@ -263,6 +276,7 @@ if __name__ == "__main__":
     pop_size = args.pop_size
     gens = args.gens
     mut_prob = args.mut_prob
+    refine_ratio = args.refine_ratio
     iters = args.iters
     temp = args.temp
     no_local_search = args.no_local_search
@@ -320,7 +334,7 @@ if __name__ == "__main__":
         )
 
         # Data subset that will be used in the fitting process
-        lower_fit_bound, upper_fit_bound = get_fitting_region(ks)
+        lower_fit_bound, upper_fit_bound = get_fitting_region(ks, lower=-0.2, upper=0.1)
         fitting_ks = ks[lower_fit_bound:upper_fit_bound, :]
         fitting_energies = sorted_energies[lower_fit_bound:upper_fit_bound, :]
         logger.info(
@@ -400,31 +414,33 @@ if __name__ == "__main__":
 
                 gas = evolve_gas(gas, processes=processes)
 
-                refined_interval_sizes = tuple(
-                    [
-                        REFINEMENT_RATIO * (upper - lower) / 2
-                        for (lower, upper) in suggested_search_region
-                    ]
-                )
-
                 # Evolving gas with refined search regions
-                gas = [
-                    NumericalOptimizationGA(
-                        search_region=search_region,
-                        function=obj_function,
-                        pop_size=pop_size,
-                        elite=elite,
-                        mut_probs=(mut_prob, mut_prob),
+                if refine_ratio != 0.0:
+                    refined_interval_sizes = tuple(
+                        [
+                            refine_ratio * (upper - lower) / 2
+                            for (lower, upper) in suggested_search_region
+                        ]
                     )
-                    for search_region in get_refined_search_regions(gas)
-                ]
 
-                logger.info(
-                    "Restarting process with refined search "
-                    "regions arround the best individuals"
-                )
+                    gas = [
+                        NumericalOptimizationGA(
+                            search_region=search_region,
+                            function=obj_function,
+                            pop_size=pop_size,
+                            elite=elite,
+                            mut_probs=(mut_prob, mut_prob),
+                        )
+                        for search_region in get_refined_search_regions(gas)
+                    ]
 
-                gas = evolve_gas(gas, processes=processes)
+                    logger.info(
+                        "Restarting process with refined search "
+                        "regions arround the best individuals"
+                    )
+
+                    gas = evolve_gas(gas, processes=processes)
+
                 func_values = list(map(get_best_func_value, gas))
                 best_func_value = min(func_values)
                 best_index = func_values.index(best_func_value)
@@ -480,18 +496,31 @@ if __name__ == "__main__":
         fig, ax = plt.subplots()
 
         # Setting up the axes
+        ylim = (
+            np.min(sorted_energies[:, 0]) - Y_MARGIN,
+            np.max(sorted_energies[:, -1]) + Y_MARGIN,
+        )
+
         ax.set(
             title=title,
             ylabel=r"Energy (\si{\eV})",
-            ylim=(
-                np.min(sorted_energies[:, 0]) - Y_MARGIN,
-                np.max(sorted_energies[:, -1]) + Y_MARGIN,
-            ),
+            ylim=ylim,
         )
 
         ax.xaxis.set_major_formatter(plt.FuncFormatter(xtick_label_formatter))
 
         plot_domain = get_plot_domain(ks)
+        ax.vlines(
+            (plot_domain[lower_fit_bound], plot_domain[upper_fit_bound]),
+            *ylim,
+            color="black",
+            alpha=0.8,
+            linestyles="dashed",
+            linewidths=0.7,
+            label="Fitting Region",
+            zorder=-2,
+        )
+
         ax.plot(
             plot_domain,
             sorted_energies,
@@ -517,7 +546,7 @@ if __name__ == "__main__":
         # Removing repeated entries from legend
         handles, labels = ax.get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
-        plt.legend(by_label.values(), by_label.keys(), loc="upper center")
+        plt.legend(by_label.values(), by_label.keys(), framealpha=1.0)
 
         # Basename to save the image and the csv file
         joined_orders = "".join([str(order) for order in orders])
