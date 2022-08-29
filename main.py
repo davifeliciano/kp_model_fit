@@ -42,7 +42,10 @@ CRS2_LATTICE = 3.022302679
 CRSE2_LATTICE = 3.167287237
 CRS2_ENERGY = 0.3536
 CRSE2_ENERGY = 0.8903
+
 Y_MARGIN = 0.1
+LOWER_FIT_LIM = -0.2
+UPPER_FIT_LIM = 0.2
 
 # Setting up logger
 LOG_FORMAT = "%(levelname)s : %(asctime)s : %(message)s"
@@ -71,6 +74,33 @@ def parse_args():
     """
     Parse the command line arguments using argparse
     """
+
+    parser.add_argument(
+        "--processes",
+        type=int,
+        nargs="?",
+        default=PROCESSES,
+        const=PROCESSES,
+        help=(
+            "the number of processes to spawn working on the optimizing "
+            f"process. Default is {PROCESSES}, the number of logical "
+            "processors in the machine"
+        ),
+    )
+
+    parser.add_argument(
+        "--orders",
+        type=int,
+        choices=(1, 2, 3),
+        nargs="*",
+        default=(1, 2, 3),
+        help=(
+            "the order of the k vector in the k.p model expansion "
+            "for the hamiltonian of the system to include in the "
+            "energy bands plot. Default is (1, 2, 3)."
+        ),
+    )
+
     parser.add_argument(
         "--method",
         type=str,
@@ -175,37 +205,24 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--processes",
-        type=int,
-        nargs="?",
-        default=PROCESSES,
-        const=PROCESSES,
-        help=(
-            "the number of processes to spawn working on the optimizing "
-            f"process. Default is {PROCESSES}, the number of logical "
-            "processors in the machine"
-        ),
-    )
-
-    parser.add_argument(
-        "--orders",
-        type=int,
-        choices=(1, 2, 3),
-        nargs="*",
-        default=(1, 2, 3),
-        help=(
-            "the order of the k vector in the k.p model expansion "
-            "for the hamiltonian of the system to include in the "
-            "energy bands plot. Default is (1, 2, 3)."
-        ),
-    )
-
-    parser.add_argument(
         "--fix",
         action="store_true",
         help=(
             "fix the non-gamma parameters, replacing them by their "
             "respective expected values, infered from the input data"
+        ),
+    )
+
+    parser.add_argument(
+        "--fit-region",
+        type=float,
+        nargs=2,
+        default=(LOWER_FIT_LIM, UPPER_FIT_LIM),
+        help=(
+            "two floats representing the the region of the data to "
+            "consider in the fitting process. Range of each value is "
+            "[-1.0, 1.0], -1.0 corresponding to gamma, 0.0, to K, and "
+            f"1.0 to M. Default is ({LOWER_FIT_LIM}, {UPPER_FIT_LIM})."
         ),
     )
 
@@ -283,6 +300,7 @@ if __name__ == "__main__":
     processes = args.processes
     orders = args.orders
     fix = args.fix
+    lower_fit_region, upper_fit_region = sorted(args.fit_region)
 
     # Checking if number of processes is not greater than available cores
     if processes > PROCESSES and method == "genetic_algorithm":
@@ -334,13 +352,17 @@ if __name__ == "__main__":
         )
 
         # Data subset that will be used in the fitting process
-        lower_fit_bound, upper_fit_bound = get_fitting_region(ks, lower=-0.2, upper=0.1)
-        fitting_ks = ks[lower_fit_bound:upper_fit_bound, :]
-        fitting_energies = sorted_energies[lower_fit_bound:upper_fit_bound, :]
+        lower_fit_index, upper_fit_index = get_fitting_region(
+            ks, lower=lower_fit_region, upper=upper_fit_region
+        )
+
+        fitting_ks = ks[lower_fit_index:upper_fit_index, :]
+        fitting_energies = sorted_energies[lower_fit_index:upper_fit_index, :]
         logger.info(
             "Using interval "
             f"{fitting_ks[0, 0]: .3f} < kx < {fitting_ks[-1, 0]: .3f} "
-            "as fitting region"
+            "as fitting region (equivalent to range "
+            f"[{lower_fit_region}, {upper_fit_region}] in the plot domain)"
         )
 
         sorted_eigen_list = []
@@ -511,7 +533,7 @@ if __name__ == "__main__":
 
         plot_domain = get_plot_domain(ks)
         ax.vlines(
-            (plot_domain[lower_fit_bound], plot_domain[upper_fit_bound]),
+            (plot_domain[lower_fit_index], plot_domain[upper_fit_index]),
             *ylim,
             color="black",
             alpha=0.8,

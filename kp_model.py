@@ -223,18 +223,6 @@ def avg_squared_diff(
     return np.sum(squared_diffs) / (squared_diffs.shape[0] * squared_diffs.shape[1])
 
 
-def get_fitting_region(
-    ks: NDArray,
-    lower: float = -0.2,
-    upper: float = 0.2,
-) -> NDArray:
-    """
-    Given a ks array, return the row indices between which lower < kx < upper
-    """
-    (indices,) = np.where((ks[:, 0] >= lower) & (ks[:, 0] <= upper))
-    return indices[0], indices[-1]
-
-
 def get_k_k_index(ks: NDArray) -> int:
     (k_k_index,) = np.where(ks[:, 0] == 0.0)
     return k_k_index[0]
@@ -251,3 +239,17 @@ def get_plot_domain(ks: NDArray) -> NDArray:
     first_region_xs = -first_region_norms / norm(k_gamma - k_k)
     second_region_xs = second_region_norms / norm(k_m - k_k)
     return np.concatenate((first_region_xs, second_region_xs))
+
+
+def get_fitting_region(
+    ks: NDArray,
+    lower: float = -0.2,
+    upper: float = 0.2,
+) -> NDArray:
+    """
+    Given a ks array, return the row indices corresponding to the range
+    (lower, upper) in the plot domain
+    """
+    plot_domain = get_plot_domain(ks)
+    (indices,) = np.where((plot_domain >= lower) & (plot_domain <= upper))
+    return indices[0], indices[-1]
