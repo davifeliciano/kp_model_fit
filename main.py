@@ -478,8 +478,8 @@ if __name__ == "__main__":
             if method == "dual_annealing":
 
                 logger.info(
-                    f"Spawning {processes} Dual Annealing with "
-                    f"temp={temp}, maxiter={iters} and "
+                    f"Spawning {processes} dual annealing processes "
+                    f"with temp={temp}, maxiter={iters} and "
                     f"no_local_search={no_local_search}"
                 )
 
@@ -610,7 +610,9 @@ if __name__ == "__main__":
             "gamma_0",
         ]
 
-        higher_order_index_labels = [f"gamma_{n}" for n in range(3 * max(orders) - 3)]
+        higher_order_index_labels = [
+            f"gamma_{n + 1}" for n in range(3 * max(orders) - 3)
+        ]
 
         output_df = pd.DataFrame(
             data=np.array(data_list).transpose(),
