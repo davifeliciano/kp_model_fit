@@ -605,7 +605,7 @@ if __name__ == "__main__":
             "lattice",
             "fermi_energy",
             "delta",
-            "lamdba_c",
+            "lambda_c",
             "lambda_v",
             "gamma_0",
         ]
