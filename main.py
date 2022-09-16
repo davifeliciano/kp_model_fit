@@ -40,12 +40,14 @@ INIT_TEMP = 5230
 # Physical properties of each lattice
 CRS2_LATTICE = 3.022302679
 CRSE2_LATTICE = 3.167287237
+MOS2_LATTICE = 3.165000000
 CRS2_ENERGY = 0.3536
 CRSE2_ENERGY = 0.8903
+MOS2_ENERGY = 0.8535
 
 Y_MARGIN = 0.1
-LOWER_FIT_LIM = -0.2
-UPPER_FIT_LIM = 0.2
+LOWER_FIT_LIM = -0.5
+UPPER_FIT_LIM = 0.5
 
 # Setting up logger
 LOG_FORMAT = "%(levelname)s : %(asctime)s : %(message)s"
@@ -114,9 +116,9 @@ def parse_args():
     parser.add_argument(
         "--lattices",
         type=str,
-        choices=("crs2", "crse2"),
+        choices=("crs2", "crse2", "mos2"),
         nargs="*",
-        default=("crs2", "crse2"),
+        default=("crs2", "crse2", "mos2"),
         help="the lattices whose energy bands will be evaluated",
     )
 
@@ -314,9 +316,14 @@ if __name__ == "__main__":
     plot_dir = Path("plots")
     results_dir = Path("results")
 
-    lattices = {"crs2": CRS2_LATTICE, "crse2": CRSE2_LATTICE}
-    expected_energies = {"crs2": CRS2_ENERGY, "crse2": CRSE2_ENERGY}
-    titles = {"crs2": r"$\ch{CrS2}$", "crse2": r"$\ch{CrSe2}$"}
+    lattices = {"crs2": CRS2_LATTICE, "crse2": CRSE2_LATTICE, "mos2": MOS2_LATTICE}
+    expected_energies = {
+        "crs2": CRS2_ENERGY,
+        "crse2": CRSE2_ENERGY,
+        "mos2": MOS2_ENERGY,
+    }
+
+    titles = {"crs2": r"$\ch{CrS2}$", "crse2": r"$\ch{CrSe2}$", "mos2": r"\ch{MoS2}"}
     files = {key: csv_dir.joinpath(f"{key}_data.csv") for key in lattices.keys()}
     ham_factories = (
         first_order_ham_factory,
@@ -395,11 +402,11 @@ if __name__ == "__main__":
                 ] + [(-1.0, 1.0)]
             else:
                 first_order_search_region = [
-                    (-1.0, 1.0),  # energy
-                    (0.5, 1.2),  # delta
+                    (-2.0, 2.0),  # energy
+                    (0.5, 2.0),  # delta
                     (0.0, 1.0),  # lambda_c
                     (0.0, 1.0),  # lambda_v
-                    (-1.0, 1.0),  # gamma_0
+                    (-1.5, 1.5),  # gamma_0
                 ]
 
             higher_order_search_region = [(-1.0, 1.0) for _ in range(3 * order - 3)]
