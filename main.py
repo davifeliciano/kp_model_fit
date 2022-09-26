@@ -481,7 +481,7 @@ if __name__ == "__main__":
                 ga = gas[best_index]
 
                 # Data used in the plot
-                label = "GA Fit"
+                label = "Algoritmo Genético"
                 params = ga.best()[0].pos
                 sorted_eigenvalues = get_energies(
                     ks, ham_factory=ham_factory, params=(lattice, *params)
@@ -511,7 +511,7 @@ if __name__ == "__main__":
                     results = [promise.get() for promise in promises]
 
                 # Data used in the plot
-                label = "Dual Annelaing Fit"
+                label = r"\textit{Dual Annealing}"
                 func_values = [result.fun for result in results]
                 best_func_value = min(func_values)
                 best_index = func_values.index(best_func_value)
@@ -537,7 +537,7 @@ if __name__ == "__main__":
 
         ax.set(
             title=title,
-            ylabel=r"Energy (\si{\eV})",
+            ylabel=r"Energia (\si{\eV})",
             ylim=ylim,
         )
 
@@ -566,7 +566,7 @@ if __name__ == "__main__":
                 alpha=0.8,
                 linestyles="dashed",
                 linewidths=0.7,
-                label=f"Fitting Region (Order {order})",
+                label=f"Região de Ajuste ({order}ª Ordem)",
                 zorder=-2,
             )
 
@@ -575,7 +575,7 @@ if __name__ == "__main__":
                 sorted_eigenvalues,
                 color=color,
                 alpha=0.8,
-                label=label + f" (Order {order})",
+                label=label + f" ({order}ª Ordem)",
                 zorder=-1,
             )
 
