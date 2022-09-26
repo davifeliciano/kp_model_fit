@@ -46,8 +46,7 @@ CRSE2_ENERGY = 0.8903
 MOS2_ENERGY = 0.8535
 
 Y_MARGIN = 0.1
-LOWER_FIT_LIM = -0.5
-UPPER_FIT_LIM = 0.5
+FIT_LIM = 0.375
 
 # Setting up logger
 LOG_FORMAT = "%(levelname)s : %(asctime)s : %(message)s"
@@ -216,15 +215,17 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--fit-region",
+        "--fit-regions",
         type=float,
-        nargs=2,
-        default=(LOWER_FIT_LIM, UPPER_FIT_LIM),
+        nargs="*",
+        default=[FIT_LIM],
         help=(
-            "two floats representing the the region of the data to "
-            "consider in the fitting process. Range of each value is "
-            "[-1.0, 1.0], -1.0 corresponding to gamma, 0.0, to K, and "
-            f"1.0 to M. Default is ({LOWER_FIT_LIM}, {UPPER_FIT_LIM})."
+            "a sequence of floats representing the percentage of points "
+            "of the data to consider in the fitting process for each order "
+            "specified, in ascending order. Idealy, the lower the order, the "
+            "smaller the correspondent value. A sugested sequence for orders "
+            "1, 2, 3 is 0.25, 0.375, 0.5. Range of each value is [0.0, 1.0]. "
+            f"Default is [{FIT_LIM}]."
         ),
     )
 
@@ -300,9 +301,9 @@ if __name__ == "__main__":
     temp = args.temp
     no_local_search = args.no_local_search
     processes = args.processes
-    orders = args.orders
+    orders = sorted(args.orders)
     fix = args.fix
-    lower_fit_region, upper_fit_region = sorted(args.fit_region)
+    fit_regions = list(map(abs, args.fit_regions))
 
     # Checking if number of processes is not greater than available cores
     if processes > PROCESSES and method == "genetic_algorithm":
@@ -311,6 +312,11 @@ if __name__ == "__main__":
             "Number of processes greater than available logical processors. "
             f"Using {PROCESSES} processes instead."
         )
+
+    # Checking if fit_region has at least the same length of orders
+    # if not, populate fit_region with the default FIT_LIM
+    while len(fit_regions) < len(orders):
+        fit_regions.append(FIT_LIM)
 
     csv_dir = Path("data/csv")
     plot_dir = Path("plots")
@@ -358,25 +364,24 @@ if __name__ == "__main__":
             expected_lambda_v,
         )
 
-        # Data subset that will be used in the fitting process
-        lower_fit_index, upper_fit_index = get_fitting_region(
-            ks, lower=lower_fit_region, upper=upper_fit_region
-        )
-
-        fitting_ks = ks[lower_fit_index:upper_fit_index, :]
-        fitting_energies = sorted_energies[lower_fit_index:upper_fit_index, :]
-        logger.info(
-            "Using interval "
-            f"{fitting_ks[0, 0]: .3f} < kx < {fitting_ks[-1, 0]: .3f} "
-            "as fitting region (equivalent to range "
-            f"[{lower_fit_region}, {upper_fit_region}] in the plot domain)"
-        )
-
         sorted_eigen_list = []
         params_list = []
         best_func_value_list = []
 
-        for order in orders:
+        for order, fit_region in zip(orders, fit_regions):
+            # Data subset that will be used in the fitting process
+            lower_fit_index, upper_fit_index = get_fitting_region(
+                ks, lower=-fit_region, upper=fit_region
+            )
+
+            fitting_ks = ks[lower_fit_index:upper_fit_index, :]
+            fitting_energies = sorted_energies[lower_fit_index:upper_fit_index, :]
+            logger.info(
+                "Using interval "
+                f"{fitting_ks[0, 0]: .3f} < kx < {fitting_ks[-1, 0]: .3f} "
+                "as fitting region (equivalent to range "
+                f"[{fit_region}, {fit_region}] in the plot domain)"
+            )
 
             # The genetic_algorithm method search for points of
             # maximum, while the dual annealing method seach for
@@ -539,17 +544,6 @@ if __name__ == "__main__":
         ax.xaxis.set_major_formatter(plt.FuncFormatter(xtick_label_formatter))
 
         plot_domain = get_plot_domain(ks)
-        ax.vlines(
-            (plot_domain[lower_fit_index], plot_domain[upper_fit_index]),
-            *ylim,
-            color="black",
-            alpha=0.8,
-            linestyles="dashed",
-            linewidths=0.7,
-            label="Fitting Region",
-            zorder=-2,
-        )
-
         ax.plot(
             plot_domain,
             sorted_energies,
@@ -562,7 +556,20 @@ if __name__ == "__main__":
 
         colors = ("blue", "red", "green")
 
-        for sorted_eigenvalues, color, order in zip(sorted_eigen_list, colors, orders):
+        for sorted_eigenvalues, color, fit_region, order in zip(
+            sorted_eigen_list, colors, fit_regions, orders
+        ):
+            ax.vlines(
+                (-fit_region, fit_region),
+                *ylim,
+                color=color,
+                alpha=0.8,
+                linestyles="dashed",
+                linewidths=0.7,
+                label=f"Fitting Region (Order {order})",
+                zorder=-2,
+            )
+
             ax.plot(
                 plot_domain,
                 sorted_eigenvalues,
